@@ -1,0 +1,75 @@
+= Cull Geometry =
+
+#type: node
+#context: sop
+#internal: cull_geometry
+#icon: SOP/blast
+
+"""Culls points or primitives outside a camera's view frustum."""
+
+Works with OBJ cameras and USD cameras (from LOP nodes), so the same node can
+be used inside a Geometry object or inside a SOP Modify / SOP Create LOP.
+
+Culled elements are first placed in the `cull_candidates` group. The Output
+menu then deletes them, deletes the visible elements instead, or keeps
+everything and leaves the group for downstream nodes.
+
+@parameters
+
+Camera:
+    #id: camera
+    One of:
+    * An OBJ camera: `/obj/cam1`
+    * A LOP node: `/stage/camera1` (prim from __Camera Prim (USD)__)
+    * A LOP node followed by a prim path: `/stage/camera1/cameras/camera1`
+    * A USD prim path, when inside SOP Modify: `/cameras/camera1`
+    * Empty, when inside SOP Modify: the first camera on its input stage.
+
+Camera Prim (USD):
+    #id: cam_primpath
+    USD camera prim used when __Camera__ points at a LOP node.
+
+Input Packed Geometry:
+    #id: is_packed
+    Cull whole packed primitives using their top-level bounds (or centroid)
+    without unpacking them. Forces primitive mode and ignores connectivity.
+
+Run over Primitives:
+    #id: run_over_prims
+    Off tests and culls points. On tests and culls primitives.
+
+Use Connectivity:
+    #id: use_connectivity
+    Keep a connected piece if any of its elements is visible.
+
+Primitive Test:
+    #id: bound_test
+    Centroid tests the primitive position only. Bounding Box keeps a
+    primitive if any part of its bounds touches the frustum.
+
+Z Near:
+    #id: znear
+    Elements closer to the camera are culled.
+
+Z Far:
+    #id: zfar
+    Elements further from the camera are culled.
+
+Overscan:
+    #id: overscan
+    Pads the frustum relative to the screen size. `0.1` adds 10% on each side.
+
+Viewing Range:
+    #id: view_range
+    Current Frame:
+        Re-culls every frame (time dependent).
+    Single Frame:
+        Culls once using the camera at __Frame__.
+    Frame Range:
+        Keeps anything visible at any frame of __Start/End/Inc__. The result
+        does not change over time.
+
+Output:
+    #id: output_mode
+    Delete Outside Frustum, Delete Inside Frustum, or Group Only
+    (`cull_candidates` group).

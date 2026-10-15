@@ -1,0 +1,14 @@
+// set_group
+// Non-destructive output: elements outside the frustum go into the
+// `cull_candidates` group (point or primitive, matching the run-over class).
+// Deletion, if any, happens downstream in the blast node.
+
+int visible = i@__cull_vis;
+
+int use_connectivity = chi("../use_connectivity") && !chi("../is_packed");
+if (use_connectivity) {
+    int piece_vis[] = detail(0, "__cull_piece_vis");
+    visible = piece_vis[i@__cull_class];
+}
+
+i@group_cull_candidates = !visible;

@@ -1,0 +1,28 @@
+= Cull Geometry =
+
+#type: node
+#context: lop
+#internal: cull_geometry_lop
+#icon: SOP/blast
+
+"""Culls USD geometry outside a camera's view frustum."""
+
+Wraps a SOP Modify LOP that runs the Cull Geometry SOP on the selected
+primitives, using a camera from the input stage.
+
+With __Input Packed Geometry__ on, each matched USD primitive is culled as a
+whole using its bounds. With it off, the primitives are unpacked to polygons
+and individual points or faces are culled.
+
+@parameters
+
+Primitives:
+    #id: primpattern
+    USD primitives to cull.
+
+Camera:
+    #id: camera
+    USD camera prim on the input stage. Empty uses the first camera found.
+
+Other parameters:
+    See the Cull Geometry SOP.

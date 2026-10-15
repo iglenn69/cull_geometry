@@ -1,0 +1,22 @@
+# Houdini backups (Houdini writes otls/backup/ every time it saves an HDA)
+backup/
+*_bak*.hip*
+*.hip.bak
+
+# USD layers SOP Modify/SOP Create save next to the working dir during tests
+usd/
+
+# Scratch scenes
+*.hip
+*.hipnc
+*.hiplc
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

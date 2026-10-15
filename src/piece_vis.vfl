@@ -1,0 +1,22 @@
+// piece_vis (detail)
+// Use Connectivity: a connected piece survives if ANY of its elements is
+// visible, so partially visible pieces are never cut open.
+// Builds i[]@__cull_piece_vis indexed by the connectivity class.
+
+int    prim_mode = chi("../run_over_prims") || chi("../is_packed");
+string owner     = prim_mode ? "prim" : "point";
+int    count     = prim_mode ? nprimitives(0) : npoints(0);
+
+int piece_vis[];
+for (int i = 0; i < count; i++) {
+    int piece = attrib(0, owner, "__cull_class", i);
+    int vis   = attrib(0, owner, "__cull_vis", i);
+    if (piece >= len(piece_vis)) {
+        resize(piece_vis, piece + 1);
+    }
+    if (vis) {
+        piece_vis[piece] = 1;
+    }
+}
+
+i[]@__cull_piece_vis = piece_vis;
