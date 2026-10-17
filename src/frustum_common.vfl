@@ -1,0 +1,40 @@
+// frustum_common
+// Shared by frustum_test and heightfield_test; build_hda.py prepends this
+// file to both snippets.
+//
+// planes[] holds 6 planes x (nx, ny, nz, d) per evaluated frame, baked by the
+// camera_data Python SOP. A point is inside when dot(n, P) + d >= 0 for every
+// plane of a frame.
+
+// Returns 1 if the world-aligned box [bmin, bmax] touches the frustum on at
+// least one frame. Pass bmin == bmax to test a single position exactly.
+int frustum_visible(vector bmin; vector bmax; float planes[]; int nframes)
+{
+    // View range accumulation: with Viewing Range = Frame Range there is one
+    // plane set per frame, and the element counts as visible if it is inside
+    // the frustum on ANY of them (union over the range). Current / Single
+    // Frame modes provide a single plane set, so the loop runs once.
+    for (int frame = 0; frame < nframes; frame++) {
+        int inside = 1;
+        for (int k = 0; k < 6; k++) {
+            int    offset = (frame * 6 + k) * 4;
+            vector normal = set(planes[offset], planes[offset + 1], planes[offset + 2]);
+            float  dist   = planes[offset + 3];
+
+            // Positive vertex: the box corner furthest along the plane normal.
+            // If even that corner is behind the plane, the whole box is outside.
+            vector pvert = set(normal.x >= 0 ? bmax.x : bmin.x,
+                               normal.y >= 0 ? bmax.y : bmin.y,
+                               normal.z >= 0 ? bmax.z : bmin.z);
+            if (dot(normal, pvert) + dist < 0) {
+                inside = 0;
+                break;
+            }
+        }
+        if (inside) {
+            return 1;
+        }
+    }
+    return 0;
+}
+

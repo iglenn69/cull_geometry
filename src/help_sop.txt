@@ -34,6 +34,13 @@ Input Packed Geometry:
     Cull whole packed primitives using their top-level bounds (or centroid)
     without unpacking them. Forces primitive mode and ignores connectivity.
 
+Input Heightfield:
+    #id: is_heightfield
+    Treat the input as a heightfield. Each voxel is tested at its terrain
+    surface position (base plane plus height), so raised terrain is culled
+    correctly. See __Heightfield Output__. Only the first `height` layer is
+    used; for tiled heightfields, run the node in a For-Each loop per tile.
+
 Run over Primitives:
     #id: run_over_prims
     Off tests and culls points. On tests and culls primitives.
@@ -44,8 +51,9 @@ Use Connectivity:
 
 Primitive Test:
     #id: bound_test
-    Centroid tests the primitive position only. Bounding Box keeps a
-    primitive if any part of its bounds touches the frustum.
+    Centroid tests the primitive position (heightfields: the voxel's surface
+    point) only. Bounding Box keeps a primitive (heightfields: a voxel) if any
+    part of its bounds touches the frustum.
 
 Z Near:
     #id: znear
@@ -72,4 +80,15 @@ Viewing Range:
 Output:
     #id: output_mode
     Delete Outside Frustum, Delete Inside Frustum, or Group Only
-    (`cull_candidates` group).
+    (`cull_candidates` group; for heightfields, a `cull_candidates` layer
+    where 1 = culled, leaving height and mask untouched).
+
+Heightfield Output:
+    #id: hf_output
+    Mask Layer:
+        Replaces the `mask` layer with visibility (1 = visible, inverted for
+        Delete Inside).
+    Crop to Visible:
+        Crops the heightfield to the visible region and removes it entirely
+        if nothing is visible. The mask is left untouched. Applies to Delete
+        Outside only; Delete Inside always writes the mask.

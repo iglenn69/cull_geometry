@@ -1,10 +1,7 @@
 // frustum_test
 // Runs over points, or primitives when Run over Primitives / Input Packed
 // Geometry is on. Writes i@__cull_vis = 1 if the element is inside the
-// camera frustum on at least one evaluated frame.
-//
-// Input 1 (camera_data) holds 6 planes x (nx, ny, nz, d) per frame in
-// f[]@cam_planes. A point is inside when dot(n, P) + d >= 0 for every plane.
+// camera frustum on at least one evaluated frame (see frustum_visible).
 
 int prim_mode  = chi("../run_over_prims") || chi("../is_packed");
 int bound_test = chi("../bound_test");          // 0 = centroid, 1 = bounding box
@@ -21,31 +18,4 @@ if (prim_mode && bound_test == 1) {
     bmax = set(bounds[1], bounds[3], bounds[5]);
 }
 
-// View range accumulation: when Viewing Range is Frame Range there is one
-// plane set per frame, and the element counts as visible if it is inside
-// the frustum on ANY of them (union over the range). Current / Single Frame
-// modes simply provide a single plane set, so the loop runs once.
-int visible = 0;
-for (int frame = 0; frame < nframes && !visible; frame++) {
-    int inside = 1;
-    for (int k = 0; k < 6; k++) {
-        int    offset = (frame * 6 + k) * 4;
-        vector normal = set(planes[offset], planes[offset + 1], planes[offset + 2]);
-        float  dist   = planes[offset + 3];
-
-        // Positive vertex: the box corner furthest along the plane normal.
-        // If even that corner is behind the plane, the whole box is outside.
-        vector pvert = set(normal.x >= 0 ? bmax.x : bmin.x,
-                           normal.y >= 0 ? bmax.y : bmin.y,
-                           normal.z >= 0 ? bmax.z : bmin.z);
-        if (dot(normal, pvert) + dist < 0) {
-            inside = 0;
-            break;
-        }
-    }
-    if (inside) {
-        visible = 1;
-    }
-}
-
-i@__cull_vis = visible;
+i@__cull_vis = frustum_visible(bmin, bmax, planes, nframes);

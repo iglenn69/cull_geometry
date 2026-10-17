@@ -1,0 +1,43 @@
+// heightfield_test (volume wrangle)
+// Input Heightfield: tests each voxel's terrain surface position against the
+// frustum and writes the result into the layers prepared by hf_layers:
+//   __cull_vis      1 = visible (drives Crop to Visible, removed afterwards)
+//   mask            Mask Layer output (inverted for Delete Inside)
+//   cull_candidates Group Only output (1 = culled), height/mask untouched
+
+int output_mode = chi("../output_mode");        // 0 outside, 1 inside, 2 group only
+int hf_output   = chi("../hf_output");          // 0 mask layer, 1 crop
+int bound_test  = chi("../bound_test");         // 0 surface point, 1 voxel footprint
+
+int   nframes  = detail(1, "cam_nframes");
+float planes[] = detail(1, "cam_planes");
+
+// Heightfield frame: rows 0/1 of the volume transform span the grid (half
+// size), row 2 is the height axis. Height values are along that axis.
+int     hprim  = nametoprim(0, "height");
+matrix3 xform  = primintrinsic(0, "transform", hprim);
+vector  res    = volumeres(0, hprim);
+vector  axis_u = set(getcomp(xform, 0, 0), getcomp(xform, 0, 1), getcomp(xform, 0, 2));
+vector  axis_v = set(getcomp(xform, 1, 0), getcomp(xform, 1, 1), getcomp(xform, 1, 2));
+vector  axis_h = normalize(set(getcomp(xform, 2, 0), getcomp(xform, 2, 1), getcomp(xform, 2, 2)));
+
+vector surface = v@P + axis_h * f@height;
+
+// Surface point, or the world-aligned box around the voxel's footprint so
+// terrain between voxel centres at the frame edge is not lost.
+vector half_extent = {0, 0, 0};
+if (bound_test == 1) {
+    half_extent = abs(axis_u) / res.x + abs(axis_v) / res.y;
+}
+vector bmin = surface - half_extent;
+vector bmax = surface + half_extent;
+
+int visible = frustum_visible(bmin, bmax, planes, nframes);
+
+f@__cull_vis = visible;
+if (output_mode == 2) {
+    f@cull_candidates = !visible;
+} else if (hf_output == 0 || output_mode == 1) {
+    // Crop can only keep a rectangle, so Delete Inside always uses the mask.
+    f@mask = output_mode == 1 ? !visible : visible;
+}

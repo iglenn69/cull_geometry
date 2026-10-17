@@ -31,33 +31,65 @@ def read_src(name):
         return handle.read()
 
 
+def read_vex(name):
+    """Wrangle snippet with the shared frustum functions prepended."""
+    return read_src("frustum_common.vfl") + read_src(name)
+
+
 # ----------------------------------------------------------------------------
 # Parameters
 # ----------------------------------------------------------------------------
 
-def cull_parm_templates():
-    """Culling parms shared by the SOP and LOP assets."""
+def cull_parm_templates(heightfield):
+    """Culling parms shared by the SOP and LOP assets.
+
+    heightfield: include the Input Heightfield parms (SOP asset only; USD
+    has no heightfield primitives).
+    """
+    # Toggles that make the point/primitive options irrelevant.
+    exclusive = "{ is_packed == 1 }"
+    if heightfield:
+        exclusive += " { is_heightfield == 1 }"
+
     prim_test = hou.MenuParmTemplate(
         "bound_test", "Primitive Test",
         menu_items=("centroid", "bbox"),
         menu_labels=("Centroid", "Bounding Box"),
         default_value=1,
-        help="Centroid: test the primitive's position only (fastest). "
-             "Bounding Box: keep the primitive if any part of its bounds "
-             "touches the frustum (conservative, no popping on large prims).")
-    prim_test.setConditional(hou.parmCondType.HideWhen,
-                             "{ run_over_prims == 0 is_packed == 0 }")
+        help="Centroid: test the primitive's position (or a heightfield "
+             "voxel's surface point) only. Bounding Box: keep the primitive "
+             "(or voxel footprint) if any part of its bounds touches the "
+             "frustum (conservative, no popping at the frame edge).")
+    prim_test.setConditional(
+        hou.parmCondType.HideWhen,
+        "{ run_over_prims == 0 is_packed == 0 is_heightfield == 0 }" if heightfield
+        else "{ run_over_prims == 0 is_packed == 0 }")
 
     run_prims = hou.ToggleParmTemplate(
         "run_over_prims", "Run over Primitives", default_value=False,
         help="Off: test and cull points. On: test and cull primitives.")
-    run_prims.setConditional(hou.parmCondType.DisableWhen, "{ is_packed == 1 }")
+    run_prims.setConditional(hou.parmCondType.DisableWhen, exclusive)
 
     connectivity = hou.ToggleParmTemplate(
         "use_connectivity", "Use Connectivity", default_value=False,
         help="Treat each connected piece as a unit: a piece is kept if any "
              "of its elements is visible, so pieces are never cut open.")
-    connectivity.setConditional(hou.parmCondType.DisableWhen, "{ is_packed == 1 }")
+    connectivity.setConditional(hou.parmCondType.DisableWhen, exclusive)
+
+    packed = hou.ToggleParmTemplate(
+        "is_packed", "Input Packed Geometry", default_value=False,
+        help="Cull whole packed primitives using their top-level bounds "
+             "or centroid, without touching the packed contents.")
+    input_templates = [packed]
+    if heightfield:
+        packed.setConditional(hou.parmCondType.DisableWhen, "{ is_heightfield == 1 }")
+        is_hf = hou.ToggleParmTemplate(
+            "is_heightfield", "Input Heightfield", default_value=False,
+            help="Treat the input as a heightfield: each voxel is tested at "
+                 "its terrain surface position (height included). See "
+                 "Heightfield Output.")
+        is_hf.setConditional(hou.parmCondType.DisableWhen, "{ is_packed == 1 }")
+        input_templates.append(is_hf)
 
     single = hou.FloatParmTemplate(
         "single_frame", "Frame", 1, default_expression=("$FSTART",),
@@ -71,11 +103,33 @@ def cull_parm_templates():
         help="Elements visible on ANY frame in this range are kept.")
     frange.setConditional(hou.parmCondType.HideWhen, "{ view_range != 2 }")
 
-    return [
-        hou.ToggleParmTemplate(
-            "is_packed", "Input Packed Geometry", default_value=False,
-            help="Cull whole packed primitives using their top-level bounds "
-                 "or centroid, without touching the packed contents."),
+    output_templates = [
+        hou.MenuParmTemplate(
+            "output_mode", "Output",
+            menu_items=("delete_outside", "delete_inside", "group_only"),
+            menu_labels=("Delete Outside Frustum", "Delete Inside Frustum",
+                         "Group Only"),
+            default_value=0,
+            help="Group Only keeps all geometry and puts culled elements in "
+                 "the '%s' group (heightfields: a '%s' layer, 1 = culled)."
+                 % (GROUP_NAME, GROUP_NAME)),
+    ]
+    if heightfield:
+        hf_output = hou.MenuParmTemplate(
+            "hf_output", "Heightfield Output",
+            menu_items=("mask", "crop"),
+            menu_labels=("Mask Layer", "Crop to Visible"),
+            default_value=0,
+            help="Mask Layer: replace the mask layer with visibility (1 = "
+                 "visible; inverted for Delete Inside). Crop to Visible: crop "
+                 "the heightfield to the visible region, removing it entirely "
+                 "if nothing is visible (Delete Outside only; Delete Inside "
+                 "always uses the mask).")
+        hf_output.setConditional(hou.parmCondType.HideWhen,
+                                 "{ is_heightfield == 0 } { output_mode == 2 }")
+        output_templates.append(hf_output)
+
+    return input_templates + [
         run_prims,
         connectivity,
         prim_test,
@@ -105,15 +159,7 @@ def cull_parm_templates():
         single,
         frange,
         hou.SeparatorParmTemplate("sep_output"),
-        hou.MenuParmTemplate(
-            "output_mode", "Output",
-            menu_items=("delete_outside", "delete_inside", "group_only"),
-            menu_labels=("Delete Outside Frustum", "Delete Inside Frustum",
-                         "Group Only"),
-            default_value=0,
-            help="Group Only keeps all geometry and puts culled elements in "
-                 "the '%s' group." % GROUP_NAME),
-    ]
+    ] + output_templates
 
 
 def sop_parm_group():
@@ -130,7 +176,7 @@ def sop_parm_group():
         help="USD camera prim path, used when Camera points at a LOP node. "
              "Empty uses the first camera found on the stage."))
     group.append(hou.SeparatorParmTemplate("sep_camera"))
-    for template in cull_parm_templates():
+    for template in cull_parm_templates(heightfield=True):
         group.append(template)
     return group
 
@@ -156,7 +202,7 @@ def lop_parm_group():
         help="USD camera prim on the input stage. Empty uses the first "
              "camera found."))
     group.append(hou.SeparatorParmTemplate("sep_camera"))
-    for template in cull_parm_templates():
+    for template in cull_parm_templates(heightfield=False):
         if template.name() == "output_mode":
             # SOP groups have no USD equivalent here, so no Group Only mode.
             template = hou.MenuParmTemplate(
@@ -215,7 +261,8 @@ def build_sop_contents(hda):
         (input) -> frustum_test -> switch_connectivity -> set_group
                        ^             \\-> connectivity -> piece_vis
                   camera_data
-        set_group -> blast -> switch_output -> cleanup -> output0
+        set_group -> blast -> switch_output -> cleanup -> switch_heightfield -> output0
+        (input) -> heightfield branch (build_heightfield_branch) -^
                 \\________________________/
     """
     for child in hda.children():
@@ -241,7 +288,7 @@ def build_sop_contents(hda):
     test.setInput(0, hda_input)
     test.setInput(1, camera_data)
     test.parm("class").setExpression("if(%s, 1, 2)" % PRIM_MODE_EXPR)
-    test.parm("snippet").set(read_src("frustum_test.vfl"))
+    test.parm("snippet").set(read_vex("frustum_test.vfl"))
 
     connectivity = hda.createNode("connectivity", "connectivity")
     connectivity.setFirstInput(test)
@@ -286,12 +333,81 @@ def build_sop_contents(hda):
     cleanup.parm("dodtldel").setExpression('ch("../use_connectivity") && !ch("../is_packed")')
     cleanup.parm("dtldel").set("__cull_*")
 
+    hf_cleanup = build_heightfield_branch(hda, hda_input, camera_data)
+
+    switch_mode = hda.createNode("switch", "switch_heightfield")
+    switch_mode.setInput(0, cleanup)
+    switch_mode.setInput(1, hf_cleanup)
+    switch_mode.parm("input").setExpression('ch("../is_heightfield")')
+
     output = hda.createNode("output", "output0")
-    output.setFirstInput(cleanup)
+    output.setFirstInput(switch_mode)
     output.setDisplayFlag(True)
     output.setRenderFlag(True)
 
     hda.layoutChildren()
+
+
+def build_heightfield_branch(hda, hda_input, camera_data):
+    """Input Heightfield branch:
+
+        (input) -> hf_layers -> hf_test -> hf_reduce -> switch_hf_crop -> hf_cleanup
+                                   ^                     |- hf_crop
+                              camera_data                \\- hf_remove (nothing visible)
+    """
+    # Volume wrangles only write existing layers, so create them first.
+    # Layer 2 is the output layer, or a throwaway so an existing mask survives.
+    hf_layers = hda.createNode("heightfield_copylayer", "hf_layers")
+    hf_layers.setFirstInput(hda_input)
+    hf_layers.parm("numcopy").set(2)
+    hf_layers.parm("srcname1").set("height")
+    hf_layers.parm("dstname1").set("__cull_vis")
+    hf_layers.parm("srcname2").set("height")
+    hf_layers.parm("dstname2").setExpression(
+        'ifs(ch("../output_mode") == 2, "%s", '
+        'ifs(ch("../hf_output") == 0 || ch("../output_mode") == 1, "mask", "__cull_unused"))'
+        % GROUP_NAME)
+
+    hf_test = hda.createNode("volumewrangle", "hf_test")
+    hf_test.setInput(0, hf_layers)
+    hf_test.setInput(1, camera_data)
+    hf_test.parm("snippet").set(read_vex("heightfield_test.vfl"))
+
+    hf_reduce = hda.createNode("volumereduce", "hf_reduce")
+    hf_reduce.setFirstInput(hf_test)
+    hf_reduce.parm("group").set("@name=__cull_vis")
+    hf_reduce.parm("reduction").set("max")
+    hf_reduce.parm("result").set("detail")
+    hf_reduce.parm("resultattrib").set("__cull_any")
+
+    hf_crop = hda.createNode("heightfield_crop", "hf_crop")
+    hf_crop.setFirstInput(hf_reduce)
+    hf_crop.parm("cropbylayer").set("__cull_vis")
+    hf_crop.parm("cropvalue").set(0.5)
+
+    hf_remove = hda.createNode("blast", "hf_remove")
+    hf_remove.setFirstInput(hf_reduce)
+    hf_remove.parm("group").set("@intrinsic:typename=Volume")
+    hf_remove.parm("grouptype").set(4)  # prims
+
+    switch_crop = hda.createNode("switch", "switch_hf_crop")
+    switch_crop.setInput(0, hf_reduce)
+    switch_crop.setInput(1, hf_crop)
+    switch_crop.setInput(2, hf_remove)
+    switch_crop.parm("input").setExpression(
+        'if(ch("../output_mode") == 0 && ch("../hf_output") == 1, '
+        'if(detail("../hf_reduce", "__cull_any", 0) > 0.5, 1, 2), 0)')
+
+    hf_cleanup_layers = hda.createNode("blast", "hf_cleanup_layers")
+    hf_cleanup_layers.setFirstInput(switch_crop)
+    hf_cleanup_layers.parm("group").set("@name=__cull_*")
+    hf_cleanup_layers.parm("grouptype").set(4)  # prims
+
+    hf_cleanup = hda.createNode("attribdelete", "hf_cleanup")
+    hf_cleanup.setFirstInput(hf_cleanup_layers)
+    hf_cleanup.parm("dodtldel").set(1)
+    hf_cleanup.parm("dtldel").set("__cull_*")
+    return hf_cleanup
 
 
 def build_sop_asset(hda_path):

@@ -172,6 +172,77 @@ def main():
     check("packed: still packed",
           set(p.type() for p in cull_packed.geometry().prims()), {hou.primType.PackedGeometry})
 
+    # --- Heightfields ------------------------------------------------------------
+    # cam_down at y=10 looking straight down: visible ground is roughly
+    # |x| <= 4.14, |z| <= 2.33 for a flat heightfield at y=0.
+    cam_down = hou.node("/obj").createNode("cam", "cam_down")
+    cam_down.parm("ty").set(10)
+    cam_down.parm("rx").set(-90)
+    terrain = geo.createNode("heightfield", "terrain")
+    terrain.parm("sizex").set(100)
+    terrain.parm("sizey").set(100)
+    terrain.parm("gridspacing").set(1)
+    terrain.parm("initialmask").set(0.5)
+    cull_hf = geo.createNode("cull_geometry::1.0", "cull_hf")
+    cull_hf.setFirstInput(terrain)
+    cull_hf.parm("camera").set("/obj/cam_down")
+    cull_hf.parm("is_heightfield").set(1)
+
+    def layer(node, name):
+        for prim in node.geometry().prims():
+            if prim.type() == hou.primType.Volume and prim.attribValue("name") == name:
+                return prim
+        return None
+
+    def sample(node, name, pos):
+        return round(layer(node, name).sample(hou.Vector3(pos)), 3)
+
+    def layer_names(node):
+        return sorted(p.attribValue("name") for p in node.geometry().prims())
+
+    def footprint(node):
+        b = layer(node, "height").intrinsicValue("bounds")
+        return (b[1] - b[0], b[5] - b[4])
+
+    check("hf mask: no errors", errors(cull_hf), ())
+    check("hf mask: no warnings", cull_hf.warnings(), ())
+    check("hf mask: values (centre, inside edge, outside x, far)",
+          [sample(cull_hf, "mask", p) for p in ((0, 0, 0), (3.5, 0, 0), (6, 0, 0), (20, 0, 20))],
+          [1.0, 1.0, 0.0, 0.0])
+    check("hf mask: temp layers / attribs removed",
+          (layer_names(cull_hf), cull_hf.geometry().findGlobalAttrib("__cull_any")),
+          (["height", "mask"], None))
+
+    cull_hf.parm("output_mode").set(1)
+    check("hf delete inside: mask inverted",
+          [sample(cull_hf, "mask", p) for p in ((0, 0, 0), (20, 0, 20))], [0.0, 1.0])
+
+    cull_hf.parm("output_mode").set(2)
+    check("hf group only: cull_candidates layer",
+          [sample(cull_hf, "cull_candidates", p) for p in ((0, 0, 0), (20, 0, 20))], [0.0, 1.0])
+    check("hf group only: mask untouched", sample(cull_hf, "mask", (0, 0, 0)), 0.5)
+    cull_hf.parm("output_mode").set(0)
+
+    cull_hf.parm("hf_output").set(1)
+    size_x, size_z = footprint(cull_hf)
+    print("     crop footprint:", size_x, size_z)
+    check("hf crop: cropped to visible region (x ~8.3, z ~4.7 + pad)",
+          (8 <= size_x <= 12, 4 <= size_z <= 8), (True, True))
+    check("hf crop: mask untouched", sample(cull_hf, "mask", (0, 0, 0)), 0.5)
+    check("hf crop: temp layers removed", layer_names(cull_hf), ["height", "mask"])
+    cull_hf.parm("bound_test").set(0)
+    check("hf crop: centroid no larger than footprint test", footprint(cull_hf)[0] <= size_x, True)
+    cull_hf.parm("bound_test").set(1)
+
+    # Height is part of the test: terrain raised above the camera is invisible.
+    terrain.parm("initialheight").set(20)
+    check("hf crop: nothing visible removes heightfield", len(cull_hf.geometry().prims()), 0)
+    cull_hf.parm("hf_output").set(0)
+    check("hf mask: raised terrain culled", sample(cull_hf, "mask", (0, 0, 0)), 0.0)
+    terrain.parm("initialheight").set(5)   # depth 5: visible |x| <= ~2.07
+    check("hf mask: height changes footprint",
+          [sample(cull_hf, "mask", p) for p in ((1.5, 0, 0), (3.5, 0, 0))], [1.0, 0.0])
+
     # --- Errors -----------------------------------------------------------------
     bad = geo.createNode("cull_geometry::1.0", "cull_nocam")
     bad.setFirstInput(pts)
