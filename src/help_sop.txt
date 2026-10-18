@@ -7,12 +7,24 @@
 
 """Culls points or primitives outside a camera's view frustum."""
 
+With __Cull Occluded__, geometry hidden behind other geometry (for example
+terrain behind a ridge) is culled as well.
+
 Works with OBJ cameras and USD cameras (from LOP nodes), so the same node can
 be used inside a Geometry object or inside a SOP Modify / SOP Create LOP.
 
 Culled elements are first placed in the `cull_candidates` group. The Output
 menu then deletes them, deletes the visible elements instead, or keeps
 everything and leaves the group for downstream nodes.
+
+@inputs
+
+Geometry to Cull:
+    Points, primitives, packed primitives or a heightfield.
+
+Occluders (optional):
+    Extra geometry that can block the camera's view, used by __Cull
+    Occluded__ when __Occluders__ includes the second input.
 
 @parameters
 
@@ -76,6 +88,32 @@ Viewing Range:
     Frame Range:
         Keeps anything visible at any frame of __Start/End/Inc__. The result
         does not change over time.
+
+Cull Occluded:
+    #id: occlusion
+    Also cull elements inside the frustum that the camera cannot see because
+    other geometry blocks them, such as terrain behind a ridge. A ray is cast
+    from each element (heightfields: each voxel's surface) to the camera.
+    Bounding Box casts from the centre and the 8 corners, so a primitive
+    that only peeks over an occluder is kept. A primitive never occludes
+    itself. With Frame Range, an element must be in view and unblocked on
+    the same frame.
+
+Occluders:
+    #id: occluder_source
+    Geometry that can block the view: the input itself, the second input,
+    or both. Packed primitives are used directly without unpacking.
+
+Occlusion Bias:
+    #id: occlusion_bias
+    Distance, in scene units, that each ray starts away from its surface.
+    Raise it if surfaces wrongly hide themselves; lower it if thin occluders
+    are missed.
+
+Heightfield Occluder LOD:
+    #id: occluder_lod
+    Resolution of the polygon terrain used as the occluder (1 = every voxel).
+    Lower values are much faster and usually nearly as accurate.
 
 Output:
     #id: output_mode

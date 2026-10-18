@@ -24,5 +24,10 @@ Camera:
     #id: camera
     USD camera prim on the input stage. Empty uses the first camera found.
 
+Cull Occluded:
+    #id: occlusion
+    Also cull primitives hidden behind other matched primitives. Only the
+    primitives matched by __Primitives__ act as occluders.
+
 Other parameters:
     See the Cull Geometry SOP.

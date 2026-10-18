@@ -4,37 +4,100 @@
 // Shared by frustum_test and heightfield_test; build_hda.py prepends this
 // file to both snippets.
 //
-// planes[] holds 6 planes x (nx, ny, nz, d) per evaluated frame, baked by the
-// camera_data Python SOP. A point is inside when dot(n, P) + d >= 0 for every
-// plane of a frame.
+// Inputs of the calling wrangle:
+//   1 = camera_data: per evaluated frame
+//         f[]@cam_planes  6 planes x (nx, ny, nz, d); inside when dot(n, P) + d >= 0
+//         f[]@cam_pos     camera origin (3 floats)
+//         f[]@cam_back    unit vector towards the camera (3 floats)
+//         i[]@cam_ortho   1 = orthographic (parallel occlusion rays)
+//   2 = occluders (only cooked with Cull Occluded on)
 
-// Returns 1 if the world-aligned box [bmin, bmax] touches the frustum on at
-// least one frame. Pass bmin == bmax to test a single position exactly.
-int frustum_visible(vector bmin; vector bmax; float planes[]; int nframes)
+// 1 if the world-aligned box [bmin, bmax] touches the frustum of one frame.
+// Pass bmin == bmax to test a single position exactly.
+int frustum_inside(vector bmin; vector bmax; float planes[]; int frame)
 {
-    // View range accumulation: with Viewing Range = Frame Range there is one
-    // plane set per frame, and the element counts as visible if it is inside
-    // the frustum on ANY of them (union over the range). Current / Single
-    // Frame modes provide a single plane set, so the loop runs once.
-    for (int frame = 0; frame < nframes; frame++) {
-        int inside = 1;
-        for (int k = 0; k < 6; k++) {
-            int    offset = (frame * 6 + k) * 4;
-            vector normal = set(planes[offset], planes[offset + 1], planes[offset + 2]);
-            float  dist   = planes[offset + 3];
+    for (int k = 0; k < 6; k++) {
+        int    offset = (frame * 6 + k) * 4;
+        vector normal = set(planes[offset], planes[offset + 1], planes[offset + 2]);
+        float  dist   = planes[offset + 3];
 
-            // Positive vertex: the box corner furthest along the plane normal.
-            // If even that corner is behind the plane, the whole box is outside.
-            vector pvert = set(normal.x >= 0 ? bmax.x : bmin.x,
-                               normal.y >= 0 ? bmax.y : bmin.y,
-                               normal.z >= 0 ? bmax.z : bmin.z);
-            if (dot(normal, pvert) + dist < 0) {
-                inside = 0;
-                break;
-            }
+        // Positive vertex: the box corner furthest along the plane normal.
+        // If even that corner is behind the plane, the whole box is outside.
+        vector pvert = set(normal.x >= 0 ? bmax.x : bmin.x,
+                           normal.y >= 0 ? bmax.y : bmin.y,
+                           normal.z >= 0 ? bmax.z : bmin.z);
+        if (dot(normal, pvert) + dist < 0) {
+            return 0;
         }
-        if (inside) {
+    }
+    return 1;
+}
+
+// 1 if nothing in the occluder input blocks the segment from `sample` to the
+// camera. The ray starts `bias` along the segment so it does not hit the
+// surface it starts on. `group` restricts the occluders (e.g. "* ^12" to skip
+// the element's own primitive).
+int occlusion_clear(vector sample; string group; vector cam_pos; vector cam_back;
+                    int ortho; float bias)
+{
+    vector to_cam;
+    float  length;
+    if (ortho) {
+        // Orthographic: parallel rays back to the camera plane.
+        to_cam = cam_back;
+        length = dot(cam_pos - sample, cam_back);
+    } else {
+        vector delta = cam_pos - sample;
+        length = len(delta);
+        to_cam = delta / max(length, 1e-9);
+    }
+    if (length <= bias) {
+        return 1;
+    }
+
+    vector origin = sample + to_cam * bias;
+    vector ray    = to_cam * (length - bias);
+    vector hit_pos;
+    vector hit_uvw;
+    int    hit = intersect(2, group, origin, ray, hit_pos, hit_uvw);
+    return hit < 0;
+}
+
+// 1 if the element is visible on at least one evaluated frame.
+//   bmin/bmax : element extent for the frustum test
+//   samples   : positions that cast occlusion rays (any clear ray = visible)
+//   group     : occluder group passed to intersect()
+int element_visible(vector bmin; vector bmax; vector samples[]; string group)
+{
+    int   nframes  = detail(1, "cam_nframes");
+    float planes[] = detail(1, "cam_planes");
+
+    int   occlusion = chi("../occlusion");
+    float bias      = chf("../occlusion_bias");
+    float pos[]     = detail(1, "cam_pos");
+    float back[]    = detail(1, "cam_back");
+    int   ortho[]   = detail(1, "cam_ortho");
+
+    // View range accumulation: with Viewing Range = Frame Range there is one
+    // camera per frame, and the element counts as visible if it is visible
+    // on ANY of them (union over the range). "Visible on a frame" means inside
+    // that frame's frustum AND, with Cull Occluded, an unblocked ray to that
+    // same frame's camera; the two tests are never mixed across frames.
+    // Current / Single Frame modes provide one camera, so the loop runs once.
+    for (int frame = 0; frame < nframes; frame++) {
+        if (!frustum_inside(bmin, bmax, planes, frame)) {
+            continue;
+        }
+        if (!occlusion) {
             return 1;
+        }
+
+        vector cam_pos  = set(pos[frame * 3], pos[frame * 3 + 1], pos[frame * 3 + 2]);
+        vector cam_back = set(back[frame * 3], back[frame * 3 + 1], back[frame * 3 + 2]);
+        foreach (vector sample; samples) {
+            if (occlusion_clear(sample, group, cam_pos, cam_back, ortho[frame], bias)) {
+                return 1;
+            }
         }
     }
     return 0;

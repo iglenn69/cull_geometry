@@ -2,14 +2,11 @@
 // SPDX-License-Identifier: MIT
 // frustum_test
 // Runs over points, or primitives when Run over Primitives / Input Packed
-// Geometry is on. Writes i@__cull_vis = 1 if the element is inside the
-// camera frustum on at least one evaluated frame (see frustum_visible).
+// Geometry is on. Writes i@__cull_vis = 1 if the element is visible on at
+// least one evaluated frame (see element_visible).
 
 int prim_mode  = chi("../run_over_prims") || chi("../is_packed");
 int bound_test = chi("../bound_test");          // 0 = centroid, 1 = bounding box
-
-int   nframes  = detail(1, "cam_nframes");
-float planes[] = detail(1, "cam_planes");
 
 // Element extent: a single position (points / centroids) or a world-aligned box.
 vector bmin = v@P;
@@ -20,4 +17,25 @@ if (prim_mode && bound_test == 1) {
     bmax = set(bounds[1], bounds[3], bounds[5]);
 }
 
-i@__cull_vis = frustum_visible(bmin, bmax, planes, nframes);
+// Occlusion ray origins: the element position, plus the box centre and
+// corners for Bounding Box so a large primitive that only peeks over an
+// occluder survives.
+vector samples[] = array(v@P);
+if (prim_mode && bound_test == 1) {
+    vector centre = (bmin + bmax) * 0.5;
+    samples = array(centre);
+    for (int corner = 0; corner < 8; corner++) {
+        vector pick = set(corner % 2, (corner / 2) % 2, (corner / 4) % 2);
+        append(samples, bmin + (bmax - bmin) * pick);
+    }
+}
+
+// A primitive never occludes itself: the occluder input starts with this
+// geometry (Input Geometry, or merged first with the second input).
+string group = "";
+int    occluder_source = chi("../occluder_source");   // 0 input, 1 second input, 2 both
+if (prim_mode && occluder_source != 1) {
+    group = sprintf("!%d", @elemnum);
+}
+
+i@__cull_vis = element_visible(bmin, bmax, samples, group);

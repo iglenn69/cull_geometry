@@ -245,6 +245,109 @@ def main():
     check("hf mask: height changes footprint",
           [sample(cull_hf, "mask", p) for p in ((1.5, 0, 0), (3.5, 0, 0))], [1.0, 0.0])
 
+    # --- Occlusion: wall on the second input ---------------------------------
+    # Wall at z=-10 covering x in [-2, 4.5]. From cam1 at the origin:
+    #   0 (0,0,-5)  in front of the wall          -> visible
+    #   1 (0,0,-20) behind the wall               -> occluded
+    #   2 (3,0,-20) behind the wall (ray x=1.5)   -> occluded
+    wall = geo.createNode("grid", "wall")
+    wall.parm("orient").set(0)
+    wall.parm("rows").set(2)
+    wall.parm("cols").set(2)
+    wall.parm("sizex").set(6.5)
+    wall.parm("sizey").set(4)
+    wall.parm("tx").set(1.25)
+    wall.parm("tz").set(-10)
+    occ_pts = points_sop(geo, "occ_pts", [(0, 0, -5), (0, 0, -20), (3, 0, -20)])
+    cull_occ = geo.createNode("cull_geometry::1.0", "cull_occ")
+    cull_occ.setInput(0, occ_pts)
+    cull_occ.setInput(1, wall)
+    cull_occ.parm("camera").set("/obj/cam1")
+    check("occlusion off: all in frustum kept", ids(cull_occ), [0, 1, 2])
+    cull_occ.parm("occlusion").set(1)
+    check("occlusion (input geometry): points occlude nothing", ids(cull_occ), [0, 1, 2])
+    cull_occ.parm("occluder_source").set(1)
+    check("occlusion (second input): wall hides points", ids(cull_occ), [0])
+    check("occlusion: no errors/warnings", (errors(cull_occ), cull_occ.warnings()), ((), ()))
+    cull_occ.parm("occluder_source").set(2)
+    check("occlusion (both): wall hides points", ids(cull_occ), [0])
+    cull_occ.parm("output_mode").set(2)
+    group = cull_occ.geometry().findPointGroup("cull_candidates")
+    check("occlusion: group only", sorted(p.attribValue("id") for p in group.points()), [1, 2])
+    cull_occ.parm("output_mode").set(0)
+
+    # Frame range: camera x goes 0 -> 9.5 over frames 1-20.
+    #   point 1: in frustum only while x < 8.28, unblocked only while x > 9
+    #            -> never both on the same frame -> culled
+    #   point 2: unblocked once x > 6 and still in frustum -> kept
+    #   point 0: in frustum while x < 2.07, never blocked -> kept
+    cam.parm("tx").setExpression("($F - 1) * 0.5")
+    cull_occ.parm("view_range").set(2)
+    cull_occ.parmTuple("frange").deleteAllKeyframes()
+    cull_occ.parmTuple("frange").set((1, 20, 1))
+    check("occlusion frame range: frustum and ray tested per frame", ids(cull_occ), [0, 2])
+    cull_occ.parm("view_range").set(0)
+    cam.parm("tx").deleteAllKeyframes()
+    cam.parm("tx").set(0)
+
+    # --- Occlusion: packed self-occlusion ------------------------------------
+    # Big box (2 units, front face z=-9) hides a small box at z=-20; a tall
+    # box at z=-20 (top y=3, still in frame) peeks over it. Each box's centre is inside itself, so
+    # this also checks a primitive never occludes itself.
+    def packed_box(name, size, centre):
+        box_node = geo.createNode("box", name)
+        box_node.parmTuple("size").set(size)
+        box_node.parmTuple("t").set(centre)
+        pack_node = geo.createNode("pack", name + "_pack")
+        pack_node.setFirstInput(box_node)
+        return pack_node
+
+    buildings = geo.createNode("merge", "buildings")
+    buildings.setInput(0, packed_box("big", (2, 2, 2), (0, 0, -10)))
+    buildings.setInput(1, packed_box("small", (1, 1, 1), (0, 0, -20)))
+    buildings.setInput(2, packed_box("tall", (1, 6, 1), (0.3, 0, -20)))
+    cull_bld = geo.createNode("cull_geometry::1.0", "cull_buildings")
+    cull_bld.setFirstInput(buildings)
+    cull_bld.parm("camera").set("/obj/cam1")
+    cull_bld.parm("is_packed").set(1)
+    cull_bld.parm("occlusion").set(1)
+
+    def heights(node):
+        return sorted(round(p.intrinsicValue("bounds")[3] - p.intrinsicValue("bounds")[2], 1)
+                      for p in node.geometry().prims())
+
+    check("occlusion packed bbox: hidden box culled, peeking box kept", heights(cull_bld), [2.0, 6.0])
+    cull_bld.parm("bound_test").set(0)
+    check("occlusion packed centroid: peeking box culled too", heights(cull_bld), [2.0])
+
+    # --- Occlusion: heightfield ridge ------------------------------------------
+    # Camera at (-30, 5, 0) looking +X, tilted 10 degrees down. A 4-unit ridge
+    # at |x| < 2 (top still in frame) hides the ground behind it (x > 2).
+    cam_ridge = hou.node("/obj").createNode("cam", "cam_ridge")
+    cam_ridge.parmTuple("t").set((-30, 5, 0))
+    cam_ridge.parmTuple("r").set((-10, -90, 0))
+    ridge_hf = geo.createNode("heightfield", "ridge_hf")
+    ridge_hf.parm("sizex").set(100)
+    ridge_hf.parm("sizey").set(100)
+    ridge_hf.parm("gridspacing").set(1)
+    ridge = geo.createNode("volumewrangle", "ridge")
+    ridge.setFirstInput(ridge_hf)
+    ridge.parm("snippet").set("if (abs(v@P.x) < 2) f@height = 4;")
+    cull_ridge = geo.createNode("cull_geometry::1.0", "cull_ridge")
+    cull_ridge.setFirstInput(ridge)
+    cull_ridge.parm("camera").set("/obj/cam_ridge")
+    cull_ridge.parm("is_heightfield").set(1)
+    ridge_probe = ((-10, 0, 0), (0, 0, 0), (10, 0, 0))   # in front, ridge top, behind
+    check("hf occlusion off: all in frustum",
+          [sample(cull_ridge, "mask", p) for p in ridge_probe], [1.0, 1.0, 1.0])
+    cull_ridge.parm("occlusion").set(1)
+    check("hf occlusion: ground behind ridge culled",
+          [sample(cull_ridge, "mask", p) for p in ridge_probe], [1.0, 1.0, 0.0])
+    check("hf occlusion: no errors/warnings", (errors(cull_ridge), cull_ridge.warnings()), ((), ()))
+    cull_ridge.parm("occluder_lod").set(0.25)
+    check("hf occlusion: lower occluder LOD",
+          [sample(cull_ridge, "mask", p) for p in ridge_probe], [1.0, 1.0, 0.0])
+
     # --- Errors -----------------------------------------------------------------
     bad = geo.createNode("cull_geometry::1.0", "cull_nocam")
     bad.setFirstInput(pts)
@@ -358,6 +461,28 @@ def main():
     check("lop asset: re-cooks on camera move",
           (usd.GetPrimAtPath("/cubes/cube_0").IsActive(), usd.GetPrimAtPath("/cubes/cube_1").IsActive()),
           (False, True))
+
+    # Occlusion: a wall between the camera (x=10) and cube_1 hides it.
+    wall_lop = stage.createNode("sopcreate", "wall")
+    wall_lop_grid = wall_lop.node("sopnet/create").createNode("grid")
+    wall_lop_grid.parm("orient").set(0)
+    wall_lop_grid.parm("sizex").set(2)
+    wall_lop_grid.parm("sizey").set(2)
+    wall_lop_grid.parm("tx").set(10)
+    wall_lop_grid.parm("tz").set(-2.5)
+    wall_lop_out = wall_lop.node("sopnet/create").createNode("output")
+    wall_lop_out.setFirstInput(wall_lop_grid)
+    wall_lop_out.setDisplayFlag(True)
+    merge.setInput(2, wall_lop)
+    lop_cull.parm("primpattern").set("/cubes/* /wall/*")
+    lop_cull.parm("occlusion").set(1)
+    usd = lop_cull.stage()
+    check("lop asset: occluded cube deactivated, wall kept",
+          (usd.GetPrimAtPath("/cubes/cube_1").IsActive(), usd.GetPrimAtPath("/wall/mesh_0").IsActive()),
+          (False, True))
+    lop_cull.parm("occlusion").set(0)
+    usd = lop_cull.stage()
+    check("lop asset: occlusion off keeps cube", usd.GetPrimAtPath("/cubes/cube_1").IsActive(), True)
 
     print()
     if FAILURES:

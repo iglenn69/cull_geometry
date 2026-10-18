@@ -11,9 +11,6 @@ int output_mode = chi("../output_mode");        // 0 outside, 1 inside, 2 group 
 int hf_output   = chi("../hf_output");          // 0 mask layer, 1 crop
 int bound_test  = chi("../bound_test");         // 0 surface point, 1 voxel footprint
 
-int   nframes  = detail(1, "cam_nframes");
-float planes[] = detail(1, "cam_planes");
-
 // Heightfield frame: rows 0/1 of the volume transform span the grid (half
 // size), row 2 is the height axis. Height values are along that axis.
 int     hprim  = nametoprim(0, "height");
@@ -34,7 +31,13 @@ if (bound_test == 1) {
 vector bmin = surface - half_extent;
 vector bmax = surface + half_extent;
 
-int visible = frustum_visible(bmin, bmax, planes, nframes);
+// Occlusion ray from just above the surface: the occluder is this terrain
+// converted to polygons, possibly at a lower LOD that sits slightly above the
+// voxel heights, so lift the origin by the bias along the height axis too.
+float  bias      = chf("../occlusion_bias");
+vector samples[] = array(surface + axis_h * bias);
+
+int visible = element_visible(bmin, bmax, samples, "");
 
 f@__cull_vis = visible;
 if (output_mode == 2) {

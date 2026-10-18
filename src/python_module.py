@@ -266,6 +266,9 @@ def build_camera_data(sop):
     margin = 1.0 + hda.evalParm("overscan")
 
     planes = []
+    cam_pos = []    # camera origin in SOP space, 3 floats per frame
+    cam_back = []   # unit camera +Z (towards the camera) in SOP space, 3 per frame
+    cam_ortho = []  # 1 = orthographic: occlusion rays are parallel to cam_back
     first_matrix = None
     for frame in frames:
         time = hou.frameToTime(frame)
@@ -280,14 +283,28 @@ def build_camera_data(sop):
             first_matrix = m_viewproj
         planes.extend(frustum_planes(m_viewproj, znear, zfar, margin))
 
+        cam_to_sop = view.inverted()
+        origin = hou.Vector4(0.0, 0.0, 0.0, 1.0) * cam_to_sop
+        back = hou.Vector4(0.0, 0.0, 1.0, 0.0) * cam_to_sop
+        back = hou.Vector3(back[0], back[1], back[2]).normalized()
+        cam_pos.extend((origin[0], origin[1], origin[2]))
+        cam_back.extend((back[0], back[1], back[2]))
+        cam_ortho.append(1 if projection == "ortho" else 0)
+
     geo.addAttrib(hou.attribType.Global, "cam_nframes", 0)
     geo.addArrayAttrib(hou.attribType.Global, "cam_planes", hou.attribData.Float, 1)
     geo.addArrayAttrib(hou.attribType.Global, "cam_frames", hou.attribData.Float, 1)
+    geo.addArrayAttrib(hou.attribType.Global, "cam_pos", hou.attribData.Float, 1)
+    geo.addArrayAttrib(hou.attribType.Global, "cam_back", hou.attribData.Float, 1)
+    geo.addArrayAttrib(hou.attribType.Global, "cam_ortho", hou.attribData.Int, 1)
     geo.addAttrib(hou.attribType.Global, "cam_matrix", (0.0,) * 16)
     geo.addAttrib(hou.attribType.Global, "cam_path", "")
 
     geo.setGlobalAttribValue("cam_nframes", len(frames))
     geo.setGlobalAttribValue("cam_planes", planes)
+    geo.setGlobalAttribValue("cam_pos", cam_pos)
+    geo.setGlobalAttribValue("cam_back", cam_back)
+    geo.setGlobalAttribValue("cam_ortho", cam_ortho)
     geo.setGlobalAttribValue("cam_frames", [float(f) for f in frames])
     geo.setGlobalAttribValue("cam_matrix", first_matrix.asTuple())
     geo.setGlobalAttribValue("cam_path", cam.path())

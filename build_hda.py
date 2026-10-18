@@ -42,15 +42,15 @@ def read_vex(name):
 # Parameters
 # ----------------------------------------------------------------------------
 
-def cull_parm_templates(heightfield):
+def cull_parm_templates(sop_asset):
     """Culling parms shared by the SOP and LOP assets.
 
-    heightfield: include the Input Heightfield parms (SOP asset only; USD
-    has no heightfield primitives).
+    sop_asset: include the SOP-only parms: Input Heightfield (USD has no
+    heightfield primitives) and the second (occluder) input.
     """
     # Toggles that make the point/primitive options irrelevant.
     exclusive = "{ is_packed == 1 }"
-    if heightfield:
+    if sop_asset:
         exclusive += " { is_heightfield == 1 }"
 
     prim_test = hou.MenuParmTemplate(
@@ -64,7 +64,7 @@ def cull_parm_templates(heightfield):
              "frustum (conservative, no popping at the frame edge).")
     prim_test.setConditional(
         hou.parmCondType.HideWhen,
-        "{ run_over_prims == 0 is_packed == 0 is_heightfield == 0 }" if heightfield
+        "{ run_over_prims == 0 is_packed == 0 is_heightfield == 0 }" if sop_asset
         else "{ run_over_prims == 0 is_packed == 0 }")
 
     run_prims = hou.ToggleParmTemplate(
@@ -83,7 +83,7 @@ def cull_parm_templates(heightfield):
         help="Cull whole packed primitives using their top-level bounds "
              "or centroid, without touching the packed contents.")
     input_templates = [packed]
-    if heightfield:
+    if sop_asset:
         packed.setConditional(hou.parmCondType.DisableWhen, "{ is_heightfield == 1 }")
         is_hf = hou.ToggleParmTemplate(
             "is_heightfield", "Input Heightfield", default_value=False,
@@ -116,7 +116,7 @@ def cull_parm_templates(heightfield):
                  "the '%s' group (heightfields: a '%s' layer, 1 = culled)."
                  % (GROUP_NAME, GROUP_NAME)),
     ]
-    if heightfield:
+    if sop_asset:
         hf_output = hou.MenuParmTemplate(
             "hf_output", "Heightfield Output",
             menu_items=("mask", "crop"),
@@ -130,6 +130,44 @@ def cull_parm_templates(heightfield):
         hf_output.setConditional(hou.parmCondType.HideWhen,
                                  "{ is_heightfield == 0 } { output_mode == 2 }")
         output_templates.append(hf_output)
+
+    occlusion_templates = [
+        hou.SeparatorParmTemplate("sep_occlusion"),
+        hou.ToggleParmTemplate(
+            "occlusion", "Cull Occluded", default_value=False,
+            help="Also cull elements inside the frustum that the camera cannot "
+                 "see because other geometry blocks them (e.g. terrain behind "
+                 "a ridge). A ray is cast from each element to the camera; on "
+                 "Frame Range the element must be in view and unblocked on the "
+                 "same frame. Bounding Box casts from the centre and 8 corners."),
+    ]
+    if sop_asset:
+        source = hou.MenuParmTemplate(
+            "occluder_source", "Occluders",
+            menu_items=("input", "second", "both"),
+            menu_labels=("Input Geometry", "Second Input", "Input and Second Input"),
+            default_value=0,
+            help="Geometry that can block the view. Input Geometry lets the "
+                 "input occlude itself (a primitive never occludes itself).")
+        source.setConditional(hou.parmCondType.DisableWhen, "{ occlusion == 0 }")
+        occlusion_templates.append(source)
+    bias = hou.FloatParmTemplate(
+        "occlusion_bias", "Occlusion Bias", 1, default_value=(0.05,),
+        min=0.0, max=1.0,
+        help="Distance (scene units) each ray starts away from its surface. "
+             "Raise it if surfaces wrongly hide themselves; lower it if thin "
+             "occluders are missed.")
+    bias.setConditional(hou.parmCondType.DisableWhen, "{ occlusion == 0 }")
+    occlusion_templates.append(bias)
+    if sop_asset:
+        lod = hou.FloatParmTemplate(
+            "occluder_lod", "Heightfield Occluder LOD", 1, default_value=(1.0,),
+            min=0.01, max=1.0, min_is_strict=True, max_is_strict=True,
+            help="Resolution of the polygon terrain used as an occluder "
+                 "(1 = every voxel). Lower is faster but less accurate.")
+        lod.setConditional(hou.parmCondType.HideWhen, "{ is_heightfield == 0 }")
+        lod.setConditional(hou.parmCondType.DisableWhen, "{ occlusion == 0 }")
+        occlusion_templates.append(lod)
 
     return input_templates + [
         run_prims,
@@ -160,6 +198,7 @@ def cull_parm_templates(heightfield):
                  "at any frame of the range (static result for the shot)."),
         single,
         frange,
+    ] + occlusion_templates + [
         hou.SeparatorParmTemplate("sep_output"),
     ] + output_templates
 
@@ -178,7 +217,7 @@ def sop_parm_group():
         help="USD camera prim path, used when Camera points at a LOP node. "
              "Empty uses the first camera found on the stage."))
     group.append(hou.SeparatorParmTemplate("sep_camera"))
-    for template in cull_parm_templates(heightfield=True):
+    for template in cull_parm_templates(sop_asset=True):
         group.append(template)
     return group
 
@@ -204,7 +243,7 @@ def lop_parm_group():
         help="USD camera prim on the input stage. Empty uses the first "
              "camera found."))
     group.append(hou.SeparatorParmTemplate("sep_camera"))
-    for template in cull_parm_templates(heightfield=False):
+    for template in cull_parm_templates(sop_asset=False):
         if template.name() == "output_mode":
             # SOP groups have no USD equivalent here, so no Group Only mode.
             template = hou.MenuParmTemplate(
@@ -261,15 +300,15 @@ def build_sop_contents(hda):
     """Internal network:
 
         (input) -> frustum_test -> switch_connectivity -> set_group
-                       ^             \\-> connectivity -> piece_vis
-                  camera_data
+                    ^      ^         \\-> connectivity -> piece_vis
+           camera_data   switch_occluders (build_occluders)
         set_group -> blast -> switch_output -> cleanup -> switch_heightfield -> output0
         (input) -> heightfield branch (build_heightfield_branch) -^
-                \\________________________/
     """
     for child in hda.children():
         child.destroy()
     hda_input = hda.indirectInputs()[0]
+    occluders = build_occluders(hda, hda_input)
 
     # Camera data (no inputs; dependencies are tracked from parm evaluation).
     objnet = hda.createNode("objnet", "cam_import")
@@ -289,6 +328,7 @@ def build_sop_contents(hda):
     test = hda.createNode("attribwrangle", "frustum_test")
     test.setInput(0, hda_input)
     test.setInput(1, camera_data)
+    test.setInput(2, occluders)
     test.parm("class").setExpression("if(%s, 1, 2)" % PRIM_MODE_EXPR)
     test.parm("snippet").set(read_vex("frustum_test.vfl"))
 
@@ -335,7 +375,7 @@ def build_sop_contents(hda):
     cleanup.parm("dodtldel").setExpression('ch("../use_connectivity") && !ch("../is_packed")')
     cleanup.parm("dtldel").set("__cull_*")
 
-    hf_cleanup = build_heightfield_branch(hda, hda_input, camera_data)
+    hf_cleanup = build_heightfield_branch(hda, hda_input, camera_data, occluders)
 
     switch_mode = hda.createNode("switch", "switch_heightfield")
     switch_mode.setInput(0, cleanup)
@@ -350,7 +390,44 @@ def build_sop_contents(hda):
     hda.layoutChildren()
 
 
-def build_heightfield_branch(hda, hda_input, camera_data):
+def build_occluders(hda, hda_input):
+    """Occluder geometry for the wrangles' third input.
+
+        self   = (input), or the heightfield as polygons when Input Heightfield
+        second = second HDA input (empty when disconnected)
+        switch_occluders: self | second | merge(self, second) | empty
+
+    Empty when Cull Occluded is off, so nothing here cooks needlessly.
+    Packed primitives are intersected directly and never unpacked.
+    """
+    hf_poly = hda.createNode("convertheightfield", "occ_heightfield")
+    hf_poly.setFirstInput(hda_input)
+    hf_poly.parm("conversion").set("polysoup")
+    hf_poly.parm("lod").setExpression('ch("../occluder_lod")')
+
+    occ_self = hda.createNode("switch", "occ_self")
+    occ_self.setInput(0, hda_input)
+    occ_self.setInput(1, hf_poly)
+    occ_self.parm("input").setExpression('ch("../is_heightfield")')
+
+    occ_second = hda.createNode("null", "occ_second")
+    occ_second.setInput(0, hda.indirectInputs()[1])
+
+    occ_both = hda.createNode("merge", "occ_both")
+    occ_both.setInput(0, occ_self)  # first, so primitive numbers match the input
+    occ_both.setInput(1, occ_second)
+
+    occ_none = hda.createNode("add", "occ_none")
+
+    switch = hda.createNode("switch", "switch_occluders")
+    for index, node in enumerate((occ_self, occ_second, occ_both, occ_none)):
+        switch.setInput(index, node)
+    switch.parm("input").setExpression(
+        'if(ch("../occlusion"), ch("../occluder_source"), 3)')
+    return switch
+
+
+def build_heightfield_branch(hda, hda_input, camera_data, occluders):
     """Input Heightfield branch:
 
         (input) -> hf_layers -> hf_test -> hf_reduce -> switch_hf_crop -> hf_cleanup
@@ -373,6 +450,7 @@ def build_heightfield_branch(hda, hda_input, camera_data):
     hf_test = hda.createNode("volumewrangle", "hf_test")
     hf_test.setInput(0, hf_layers)
     hf_test.setInput(1, camera_data)
+    hf_test.setInput(2, occluders)
     hf_test.parm("snippet").set(read_vex("heightfield_test.vfl"))
 
     hf_reduce = hda.createNode("volumereduce", "hf_reduce")
@@ -415,9 +493,11 @@ def build_heightfield_branch(hda, hda_input, camera_data):
 def build_sop_asset(hda_path):
     geo = hou.node("/obj").createNode("geo", "build_sop")
     subnet = geo.createNode("subnet", "cull_geometry")
+    subnet.parm("label1").set("Geometry to Cull")
+    subnet.parm("label2").set("Occluders (optional)")
     asset = subnet.createDigitalAsset(
         name=SOP_TYPE, hda_file_name=hda_path, description="Cull Geometry",
-        min_num_inputs=1, max_num_inputs=1, version="1.0",
+        min_num_inputs=1, max_num_inputs=2, version="1.0",
         ignore_external_references=True)
 
     definition = asset.type().definition()

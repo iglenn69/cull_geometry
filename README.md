@@ -80,6 +80,10 @@ remove entirely will still exist on the stage. Option A handles this for you.
 | Z Near / Z Far | 0.1 / 1000 | Depth range, in scene units from the camera. |
 | Overscan | 0 | Grows the frustum relative to the screen: `0.1` adds 10% on each side. Negative values shrink it. |
 | Viewing Range | Current Frame | **Current Frame**: re-culls every frame. **Single Frame**: culls once using the camera at **Frame**. **Frame Range**: keeps anything visible on any frame from **Start/End/Inc**; the result is fixed for the whole range. |
+| Cull Occluded | Off | Also cull elements inside the frustum that are hidden behind other geometry (e.g. terrain behind a ridge). A ray is cast from each element to the camera; Bounding Box casts from the centre and 8 corners. |
+| Occluders | Input Geometry | SOP node only. What can block the view: **Input Geometry**, **Second Input**, or both. On the LOP node, the matched primitives occlude each other. |
+| Occlusion Bias | 0.05 | How far (scene units) each ray starts from its own surface. Raise it if surfaces hide themselves; lower it if thin occluders are missed. |
+| Heightfield Occluder LOD | 1 | Heightfields only. Resolution of the polygon terrain used as occluder; 0.25 is much faster and usually nearly identical. |
 | Output | Delete Outside Frustum | **Delete Outside**, **Delete Inside**, or (SOP only) **Group Only**, which keeps all geometry and puts culled elements in the `cull_candidates` group. |
 | Heightfield Output | Mask Layer | Heightfields only. **Mask Layer** replaces `mask` with visibility (inverted for Delete Inside). **Crop to Visible** crops to the visible region and removes the heightfield if none of it is visible (Delete Outside only). Group Only writes a `cull_candidates` layer instead. |
 | Fully Culled Prims | Deactivate | LOP node only. **Deactivate** or **Make Invisible**. |
@@ -96,6 +100,11 @@ remove entirely will still exist on the stage. Option A handles this for you.
   are treated as perspective and show a warning.
 - Heightfields: only the first `height` layer in the input is culled. For
   tiled heightfields, run the node in a For-Each loop per tile.
+- Occlusion costs one ray per element per frame (per sample with Bounding
+  Box). A 1000x1000 heightfield takes about 0.4 s at occluder LOD 1 and
+  under 0.1 s at LOD 0.25. With Frame Range the cost scales with the number
+  of frames.
+- Occlusion only considers geometry, not transparency or displacement.
 - **Group Only** is the non-destructive option: feed the `cull_candidates`
   group into your own Blast, Split or attribute logic.
 
@@ -108,7 +117,7 @@ overwritten on the next build unless you copy them back into `src/`.
 ```
 build_hda.py            builds otls/cull_geometry.hda (both node types)
 src/python_module.py    camera resolution, projection, frustum planes
-src/frustum_common.vfl  shared frustum plane test (prepended to the wrangles)
+src/frustum_common.vfl  shared frustum + occlusion tests (prepended to the wrangles)
 src/frustum_test.vfl    per-element frustum test (VEX)
 src/heightfield_test.vfl  per-voxel heightfield test (VEX)
 src/piece_vis.vfl       connectivity aggregation (VEX)
@@ -137,8 +146,10 @@ The test run should end with `ALL PASSED`.
    any frame.
 2. A wrangle tests each point, centroid or bounding box (or, for
    heightfields, each voxel's surface point or footprint) against those
-   planes. In Frame Range mode an element counts as visible if it is inside
-   on any frame.
+   planes. With **Cull Occluded**, elements inside the frustum also cast a
+   ray to the camera (VEX `intersect()` against the occluders) and are
+   culled if it is blocked. In Frame Range mode an element counts as visible
+   if it passes both tests on the same frame, on any frame of the range.
 3. Optional connectivity aggregation, then the `cull_candidates` group is
    written and Blast removes it (or the inverse) depending on **Output**.
 
