@@ -3,7 +3,7 @@
 Camera frustum culling for SideFX Houdini. Removes (or groups) points,
 primitives or packed primitives that fall outside a camera's view. Works in
 both OBJ/SOP networks and Solaris (Stage/LOP) networks.
-
+Claude Code assisted.
 Built and tested with Houdini 22.0.466.
 
 ## What's in the library
