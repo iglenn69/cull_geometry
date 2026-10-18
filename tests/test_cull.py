@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 AzureBlure
+# SPDX-License-Identifier: MIT
 """
 hython tests for the Cull Geometry HDAs.
 

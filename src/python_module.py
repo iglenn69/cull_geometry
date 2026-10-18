@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 AzureBlure
+# SPDX-License-Identifier: MIT
 """
 PythonModule for cull_geometry::1.0 (SOP).
 

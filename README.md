@@ -141,3 +141,7 @@ The test run should end with `ALL PASSED`.
    on any frame.
 3. Optional connectivity aggregation, then the `cull_candidates` group is
    written and Blast removes it (or the inverse) depending on **Output**.
+
+## License
+
+Released under the [MIT License](LICENSE). Copyright (c) 2026 AzureBlure.

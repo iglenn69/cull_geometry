@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 AzureBlure
+// SPDX-License-Identifier: MIT
 // frustum_common
 // Shared by frustum_test and heightfield_test; build_hda.py prepends this
 // file to both snippets.

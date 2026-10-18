@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 AzureBlure
+// SPDX-License-Identifier: MIT
 // piece_vis (detail)
 // Use Connectivity: a connected piece survives if ANY of its elements is
 // visible, so partially visible pieces are never cut open.

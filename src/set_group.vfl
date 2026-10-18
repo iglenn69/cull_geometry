@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 AzureBlure
+// SPDX-License-Identifier: MIT
 // set_group
 // Non-destructive output: elements outside the frustum go into the
 // `cull_candidates` group (point or primitive, matching the run-over class).

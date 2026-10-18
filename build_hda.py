@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 AzureBlure
+# SPDX-License-Identifier: MIT
 """
 Build the Cull Geometry HDAs with hython.
 
