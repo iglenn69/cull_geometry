@@ -124,9 +124,11 @@ def cull_parm_templates(sop_asset):
             default_value=0,
             help="Mask Layer: replace the mask layer with visibility (1 = "
                  "visible; inverted for Delete Inside). Crop to Visible: crop "
-                 "the heightfield to the visible region, removing it entirely "
-                 "if nothing is visible (Delete Outside only; Delete Inside "
-                 "always uses the mask).")
+                 "the heightfield to the bounding rectangle of the visible "
+                 "region (removing it entirely if nothing is visible) and "
+                 "write visibility to the mask layer, since the rectangle can "
+                 "still hold hidden terrain (Delete Outside only; Delete "
+                 "Inside always uses the mask).")
         hf_output.setConditional(hou.parmCondType.HideWhen,
                                  "{ is_heightfield == 0 } { output_mode == 2 }")
         output_templates.append(hf_output)
@@ -435,7 +437,7 @@ def build_heightfield_branch(hda, hda_input, camera_data, occluders):
                               camera_data                \\- hf_remove (nothing visible)
     """
     # Volume wrangles only write existing layers, so create them first.
-    # Layer 2 is the output layer, or a throwaway so an existing mask survives.
+    # Layer 2 is the output layer: cull_candidates for Group Only, else mask.
     hf_layers = hda.createNode("heightfield_copylayer", "hf_layers")
     hf_layers.setFirstInput(hda_input)
     hf_layers.parm("numcopy").set(2)
@@ -443,9 +445,7 @@ def build_heightfield_branch(hda, hda_input, camera_data, occluders):
     hf_layers.parm("dstname1").set("__cull_vis")
     hf_layers.parm("srcname2").set("height")
     hf_layers.parm("dstname2").setExpression(
-        'ifs(ch("../output_mode") == 2, "%s", '
-        'ifs(ch("../hf_output") == 0 || ch("../output_mode") == 1, "mask", "__cull_unused"))'
-        % GROUP_NAME)
+        'ifs(ch("../output_mode") == 2, "%s", "mask")' % GROUP_NAME)
 
     hf_test = hda.createNode("volumewrangle", "hf_test")
     hf_test.setInput(0, hf_layers)

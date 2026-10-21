@@ -230,11 +230,20 @@ def main():
     print("     crop footprint:", size_x, size_z)
     check("hf crop: cropped to visible region (x ~8.3, z ~4.7 + pad)",
           (8 <= size_x <= 12, 4 <= size_z <= 8), (True, True))
-    check("hf crop: mask untouched", sample(cull_hf, "mask", (0, 0, 0)), 0.5)
+    check("hf crop: mask written (visible centre)", sample(cull_hf, "mask", (0, 0, 0)), 1.0)
     check("hf crop: temp layers removed", layer_names(cull_hf), ["height", "mask"])
     cull_hf.parm("bound_test").set(0)
     check("hf crop: centroid no larger than footprint test", footprint(cull_hf)[0] <= size_x, True)
     cull_hf.parm("bound_test").set(1)
+
+    # Camera spun 45 degrees: the visible footprint runs diagonally, so the
+    # cropped rectangle holds hidden voxels and the mask marks them. (2.5, 2.5)
+    # and (2.5, -2.5) lie along the footprint's long and short axes at 3.54.
+    cam_down.parm("ry").set(45)
+    check("hf crop diagonal: mask marks hidden voxels inside the crop",
+          sorted(sample(cull_hf, "mask", p) for p in ((2.5, 0, 2.5), (2.5, 0, -2.5))),
+          [0.0, 1.0])
+    cam_down.parm("ry").set(0)
 
     # Height is part of the test: terrain raised above the camera is invisible.
     terrain.parm("initialheight").set(20)

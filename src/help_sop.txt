@@ -127,6 +127,10 @@ Heightfield Output:
         Replaces the `mask` layer with visibility (1 = visible, inverted for
         Delete Inside).
     Crop to Visible:
-        Crops the heightfield to the visible region and removes it entirely
-        if nothing is visible. The mask is left untouched. Applies to Delete
+        Crops the heightfield to the bounding rectangle of the visible region
+        and removes it entirely if nothing is visible. A heightfield can only
+        be cropped to a rectangle aligned with its grid, so when the camera
+        looks diagonally across the terrain the rectangle still contains
+        hidden voxels; the `mask` layer is replaced with visibility (1 =
+        visible) to mark the exact visible region inside it. Applies to Delete
         Outside only; Delete Inside always writes the mask.

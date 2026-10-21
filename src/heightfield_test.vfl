@@ -4,7 +4,7 @@
 // Input Heightfield: tests each voxel's terrain surface position against the
 // frustum and writes the result into the layers prepared by hf_layers:
 //   __cull_vis      1 = visible (drives Crop to Visible, removed afterwards)
-//   mask            Mask Layer output (inverted for Delete Inside)
+//   mask            Mask Layer / Crop output (inverted for Delete Inside)
 //   cull_candidates Group Only output (1 = culled), height/mask untouched
 
 int output_mode = chi("../output_mode");        // 0 outside, 1 inside, 2 group only
@@ -42,7 +42,9 @@ int visible = element_visible(bmin, bmax, samples, "");
 f@__cull_vis = visible;
 if (output_mode == 2) {
     f@cull_candidates = !visible;
-} else if (hf_output == 0 || output_mode == 1) {
-    // Crop can only keep a rectangle, so Delete Inside always uses the mask.
+} else {
+    // Crop can only keep a rectangle, so it also writes the mask: the cropped
+    // rectangle can still contain hidden terrain when the frustum's footprint
+    // runs diagonally across the grid. Delete Inside always uses the mask.
     f@mask = output_mode == 1 ? !visible : visible;
 }
