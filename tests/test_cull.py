@@ -357,6 +357,30 @@ def main():
     check("hf occlusion: lower occluder LOD",
           [sample(cull_ridge, "mask", p) for p in ridge_probe], [1.0, 1.0, 0.0])
 
+    # --- Occlusion: points scattered on the ridge terrain -----------------------
+    # Points in front of / behind the ridge, the terrain as the second input.
+    # The far points are 40+ units from the camera, so this also guards the
+    # occlusion ray length (a len()/length() mixup once made rays ~3 units).
+    ridge_pts = points_sop(geo, "ridge_pts", [(-10, 0, 0), (10, 0, 0), (30, 0, 0)])
+    cull_ridge_pts = geo.createNode("cull_geometry::1.0", "cull_ridge_pts")
+    cull_ridge_pts.setInput(0, ridge_pts)
+    cull_ridge_pts.setInput(1, ridge)
+    cull_ridge_pts.parm("camera").set("/obj/cam_ridge")
+    cull_ridge_pts.parm("occlusion").set(1)
+    cull_ridge_pts.parm("occluder_source").set(1)
+    check("point occlusion: points behind ridge culled", ids(cull_ridge_pts), [0])
+    cull_ridge_pts.parm("occlusion_bias").set(1.0)
+    check("point occlusion: larger bias still culls", ids(cull_ridge_pts), [0])
+    cull_ridge_pts.parm("occlusion_bias").set(0.05)
+    # Rays rise towards the camera (y=5), so from 4.5 units up (no N: +Y) they
+    # clear the 4-unit ridge: the tops of objects behind it are visible.
+    cull_ridge_pts.parm("occlusion_lift").set(4.5)
+    check("point occlusion: sample height keeps tops over ridge", ids(cull_ridge_pts), [0, 1, 2])
+    cull_ridge_pts.parm("occlusion_lift").set(2)
+    check("point occlusion: low sample height still hidden", ids(cull_ridge_pts), [0])
+    check("point occlusion: no errors/warnings",
+          (errors(cull_ridge_pts), cull_ridge_pts.warnings()), ((), ()))
+
     # --- Errors -----------------------------------------------------------------
     bad = geo.createNode("cull_geometry::1.0", "cull_nocam")
     bad.setFirstInput(pts)

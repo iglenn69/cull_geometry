@@ -30,6 +30,21 @@ if (prim_mode && bound_test == 1) {
     }
 }
 
+// Points: optional second ray from Point Sample Height above the point, so
+// e.g. a tree instanced on terrain counts as visible if its top shows. Tested
+// first since the raised sample is the one most likely to be clear.
+float lift = chf("../occlusion_lift");
+if (!prim_mode && lift > 0) {
+    vector up = {0, 1, 0};
+    if (haspointattrib(0, "N")) {
+        vector normal = v@N;
+        if (length2(normal) > 1e-12) {
+            up = normalize(normal);
+        }
+    }
+    insert(samples, 0, v@P + up * lift);
+}
+
 // A primitive never occludes itself: the occluder input starts with this
 // geometry (Input Geometry, or merged first with the second input).
 string group = "";

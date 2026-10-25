@@ -40,23 +40,25 @@ int frustum_inside(vector bmin; vector bmax; float planes[]; int frame)
 int occlusion_clear(vector sample; string group; vector cam_pos; vector cam_back;
                     int ortho; float bias)
 {
+    // Note: len() of a vector is its component count (3), not its length;
+    // use length(). Don't name a variable `length`, it hides the function.
     vector to_cam;
-    float  length;
+    float  dist;
     if (ortho) {
         // Orthographic: parallel rays back to the camera plane.
         to_cam = cam_back;
-        length = dot(cam_pos - sample, cam_back);
+        dist   = dot(cam_pos - sample, cam_back);
     } else {
         vector delta = cam_pos - sample;
-        length = len(delta);
-        to_cam = delta / max(length, 1e-9);
+        dist   = length(delta);
+        to_cam = delta / max(dist, 1e-9);
     }
-    if (length <= bias) {
+    if (dist <= bias) {
         return 1;
     }
 
     vector origin = sample + to_cam * bias;
-    vector ray    = to_cam * (length - bias);
+    vector ray    = to_cam * (dist - bias);
     vector hit_pos;
     vector hit_uvw;
     int    hit = intersect(2, group, origin, ray, hit_pos, hit_uvw);

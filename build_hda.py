@@ -161,6 +161,17 @@ def cull_parm_templates(sop_asset):
              "occluders are missed.")
     bias.setConditional(hou.parmCondType.DisableWhen, "{ occlusion == 0 }")
     occlusion_templates.append(bias)
+    lift = hou.FloatParmTemplate(
+        "occlusion_lift", "Point Sample Height", 1, default_value=(0.0,),
+        min=0.0, max=10.0,
+        help="Points only: also cast a ray from this height above each point "
+             "(along N, or +Y without N), e.g. the height of what will be "
+             "instanced there. A point is kept if its base or its top can be "
+             "seen, so trees scattered on terrain survive when only their "
+             "tops show over a ridge. 0 casts from the point only.")
+    lift.setConditional(hou.parmCondType.DisableWhen,
+                        "{ occlusion == 0 } { run_over_prims == 1 } " + exclusive)
+    occlusion_templates.append(lift)
     if sop_asset:
         lod = hou.FloatParmTemplate(
             "occluder_lod", "Heightfield Occluder LOD", 1, default_value=(1.0,),

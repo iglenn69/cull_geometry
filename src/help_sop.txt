@@ -110,6 +110,19 @@ Occlusion Bias:
     Raise it if surfaces wrongly hide themselves; lower it if thin occluders
     are missed.
 
+Point Sample Height:
+    #id: occlusion_lift
+    Points only. Also casts a ray from this height above each point (along
+    `N`, or +Y when the point has no `N`), typically the height of what will
+    be instanced there. A point is kept if its base or its top can be seen.
+    Useful for points scattered on terrain: with 0, a point on a slope facing
+    away from the camera is hidden by the ground it sits on.
+
+    To cull scatter points by terrain, put the terrain in the occluders:
+    __Input Geometry__ when the points arrive together with the heightfield
+    (as Heightfield Scatter outputs them), or wire the terrain (heightfield
+    or polygons) into the second input and choose __Second Input__.
+
 Heightfield Occluder LOD:
     #id: occluder_lod
     Resolution of the polygon terrain used as the occluder (1 = every voxel).
